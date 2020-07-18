@@ -3,6 +3,22 @@
 -- It can be run using a standard lua interpreter, although LuaJIT is preferable
 
 
+local LibDeflate
+if LibStub then -- You are using LibDeflate as WoW addon
+	LibDeflate = LibStub:GetLibrary("LibDeflate")
+else
+	LibDeflate = require("LibDeflate")
+end
+
+local xml = require("xml")
+local json = require("json")
+
+
+bit = bit32
+
+function setfenv()
+end
+
 -- Callbacks
 local callbackTable = { }
 local mainObject
@@ -82,12 +98,10 @@ function IsKeyDown(keyName) end
 function Copy(text) end
 function Paste() end
 function Deflate(data)
-	-- TODO: Might need this
-	return ""
+		return LibDeflate:CompressZlib(data)
 end
 function Inflate(data)
-	-- TODO: And this
-	return ""
+		return LibDeflate:DecompressZlib(data)
 end
 function GetTime()
 	return 0
@@ -136,7 +150,7 @@ function PCall(func, ...)
 	local ret = { pcall(func, ...) }
 	if ret[1] then
 		table.remove(ret, 1)
-		return nil, unpack(ret)
+		return nil, table.unpack(ret)
 	else
 		return ret[2]
 	end	
@@ -197,9 +211,104 @@ local function loadBuildFromJSON(getItemsJSON, getPassiveSkillsJSON)
 	-- Good luck!
 end
 
+function saveBuildToXml()
+    local xmlText = build:SaveDB("dummy")
+    if not xmlText then
+        print("Failed to prepare save XML")
+        os.exit(1)
+    end
+    return xmlText
+end
 
--- Now you can mess around!
+function saveBuildToCode()
+		local codeText = common.base64.encode(Deflate(build:SaveDB("code"))):gsub("+","-"):gsub("/","_")
+    if not codeText then
+        print("Failed to prepare save code")
+        os.exit(1)
+    end
+		return codeText
+end
 
+local open = io.open
+
+local function read_file(path)
+    local file = open(path, "rb") -- r read mode and b binary mode
+    if not file then return nil end
+    local content = file:read "*a" -- *a or *all reads the whole file
+    file:close()
+    return content
+end
+
+local function file_exists(name)
+		if name == nil then
+			return false
+		else 
+   		local f = io.open(name,"r")
+   		if f~=nil then io.close(f) return true else return false end
+		end
+end
+
+function test_local_jsons()
+		local items = read_file("char-items.json");
+		local passives = read_file("char-passives.json");
+		loadBuildFromJSON(items, passives)
+		local resultByJson = saveBuildToXml()
+
+		loadBuildFromXML(resultByJson)
+		build.mainSocketGroup = 6
+		build.calcsTab.input.skill_number = 6
+		build.skillsTab.socketGroupList[6].mainActiveSkillCalcs = 3
+		build.skillsTab.socketGroupList[6].mainActiveSkill = 3
+		build.buildFlag = true
+		build.calcsTab:BuildOutput()
+		runCallback("OnFrame")
+		local result = saveBuildToXml()
+
+		local file
+		file = io.open("char-pob.xml", "w")
+		io.output(file)
+		io.write(result)
+		io.close(file)
+
+		file = io.open("char-code.txt", "w")
+		io.output(file)
+		io.write(saveBuildToCode())
+		io.close(file)
+end
+
+local function saveTreeJson()
+	local treeData = dofile("./TreeData/3_11/tree.lua")
+	local newNodes = {}
+	for k, v in pairs(treeData.nodes) do
+		if type(k) == "number" then
+			local newK = string.format("%d", k)
+			newNodes[newK] = v
+		else
+			newNodes[k] = v
+		end
+	end
+	treeData.nodes = newNodes
+	file = io.open("tree_3_11.json", "w")
+	io.output(file)
+	io.write(json.encode({nodes = treeData.nodes, groups = treeData.groups, classes = treeData.classes }))
+	io.close(file)
+end
+
+
+
+
+local passivesJsonPath = arg[1]
+local itemsJsonPath = arg[2]
+
+if file_exists(passivesJsonPath) and file_exists(itemsJsonPath) then
+		local items = read_file(itemsJsonPath);
+		local passives = read_file(passivesJsonPath);
+		loadBuildFromJSON(items, passives)
+		local resultByJson = saveBuildToXml()
+		loadBuildFromXML(resultByJson)
+		local result = saveBuildToXml()
+		print(result)
+end
 
 -- Probably optional
 runCallback("OnExit")

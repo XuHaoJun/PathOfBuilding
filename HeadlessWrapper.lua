@@ -107,13 +107,13 @@ function GetTime()
 	return 0
 end
 function GetScriptPath()
-	return ""
+    return "."
 end
 function GetRuntimePath()
-	return ""
+    return "."
 end
 function GetUserPath()
-	return ""
+    return "."
 end
 function MakeDir(path) end
 function RemoveDir(path) end

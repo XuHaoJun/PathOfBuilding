@@ -1,20 +1,27 @@
-#@
+-- #@
 -- This wrapper allows the program to run headless on any OS (in theory)
 -- It can be run using a standard lua interpreter, although LuaJIT is preferable
 
 
-local LibDeflate
-if LibStub then -- You are using LibDeflate as WoW addon
-	LibDeflate = LibStub:GetLibrary("LibDeflate")
-else
-	LibDeflate = require("LibDeflate")
-end
+LibDeflate = require("LibDeflate")
 
 local xml = require("xml")
 local json = require("json")
 
+bit = bit or bit32 or require("bitop.funcs")
+unpack = unpack or table.unpack
+loadstring = loadstring or load
 
-bit = bit32
+local lua_version = _VERSION:sub(-3)
+if lua_version > "5.2" then
+	_old_string_format = string.format
+	local function string_format(fmt, ...)
+		local args, n = { ... }, select('#', ...)
+		fmt = string.gsub(fmt, "%%d", "%%.0f")
+		return _old_string_format(fmt, unpack(args, 1, n))
+	end
+	_G.string.format = string_format
+end
 
 function setfenv()
 end
@@ -22,7 +29,7 @@ end
 -- Callbacks
 local callbackTable = { }
 local mainObject
-local function runCallback(name, ...)
+function runCallback(name, ...)
 	if callbackTable[name] then
 		return callbackTable[name](...)
 	elseif mainObject and mainObject[name] then
@@ -194,13 +201,21 @@ end
 local build = mainObject.main.modes["BUILD"]
 
 -- Here's some helpful helper functions to help you get started
-local function newBuild()
+function newBuild()
 	mainObject.main:SetMode("BUILD", false, "Help, I'm stuck in Path of Building!")
 	runCallback("OnFrame")
 end
 local function loadBuildFromXML(xmlText)
 	mainObject.main:SetMode("BUILD", false, "", xmlText)
 	runCallback("OnFrame")
+end
+local function loadBuildFromCode(codeText)
+	mainObject.main:SetMode("BUILD", false, "")
+	runCallback("OnFrame")
+	local charData = build.importTab:ImportItemsAndSkills(getItemsJSON)
+	build.importTab:ImportPassiveTreeAndJewels(getPassiveSkillsJSON, charData)
+	-- You now have a build without a correct main skill selected, or any configuration options set
+	-- Good luck!
 end
 local function loadBuildFromJSON(getItemsJSON, getPassiveSkillsJSON)
 	mainObject.main:SetMode("BUILD", false, "")
@@ -240,43 +255,42 @@ local function read_file(path)
 end
 
 local function file_exists(name)
-		if name == nil then
-			return false
-		else 
-   		local f = io.open(name,"r")
-   		if f~=nil then io.close(f) return true else return false end
-		end
+	if name == nil then
+		return false
+	else 
+  		local f = io.open(name,"r")
+  		if f~=nil then io.close(f) return true else return false end
+	end
 end
 
-function test_local_jsons()
-		local items = read_file("char-items.json");
-		local passives = read_file("char-passives.json");
-		loadBuildFromJSON(items, passives)
-		local resultByJson = saveBuildToXml()
+local function test_local_jsons()
+	local items = read_file("char-items.json");
+	local passives = read_file("char-passives.json");
+	loadBuildFromJSON(items, passives)
+	local resultByJson = saveBuildToXml()
 
-		loadBuildFromXML(resultByJson)
-		build.mainSocketGroup = 6
-		build.calcsTab.input.skill_number = 6
-		build.skillsTab.socketGroupList[6].mainActiveSkillCalcs = 3
-		build.skillsTab.socketGroupList[6].mainActiveSkill = 3
-		build.buildFlag = true
-		build.calcsTab:BuildOutput()
-		runCallback("OnFrame")
-		local result = saveBuildToXml()
+	loadBuildFromXML(resultByJson)
+	build.mainSocketGroup = 7
+	build.calcsTab.input.skill_number = 7
+	-- build.skillsTab.socketGroupList[6].mainActiveSkillCalcs = 3
+	-- build.skillsTab.socketGroupList[6].mainActiveSkill = 3
+	build.configTab.input.enemyIsBoss = "Shaper"
+	build.calcsTab:BuildOutput()
+	runCallback("OnFrame")
+	local result = saveBuildToXml()
+	-- runCallback("OnFrame")
 
-		local file
-		file = io.open("char-pob.xml", "w")
-		io.output(file)
-		io.write(result)
-		io.close(file)
+	local file
+	file = io.open("char-pob.xml", "w")
+	file:write(result)
+	file:close()
 
-		file = io.open("char-code.txt", "w")
-		io.output(file)
-		io.write(saveBuildToCode())
-		io.close(file)
+	-- file = io.open("char-code.txt", "w")
+	-- file:write(saveBuildToCode())
+	-- file:close()
 end
 
-local function saveTreeJson()
+function saveTreeJson()
 	local treeData = dofile("./TreeData/3_11/tree.lua")
 	local newNodes = {}
 	for k, v in pairs(treeData.nodes) do
@@ -289,26 +303,48 @@ local function saveTreeJson()
 	end
 	treeData.nodes = newNodes
 	file = io.open("tree_3_11.json", "w")
-	io.output(file)
-	io.write(json.encode({nodes = treeData.nodes, groups = treeData.groups, classes = treeData.classes }))
-	io.close(file)
+	file:write(json.encode({nodes = treeData.nodes, groups = treeData.groups, classes = treeData.classes }))
+	file:close()
+end
+
+function getBuildXmlByXml(xmlText)
+	loadBuildFromXML(xmlText)
+	local result = saveBuildToXml()
+	return result
+end
+
+function getBuildXmlByJsons(passivesJson, itemsJson)
+	loadBuildFromJSON(itemsJson, passivesJson)
+	local resultByJson = saveBuildToXml()
+	loadBuildFromXML(resultByJson)
+	local result = saveBuildToXml()
+	return result
+end
+
+function getBuildXmlByFiles(passivesJsonPath, itemsJsonPath)
+	if file_exists(passivesJsonPath) and file_exists(itemsJsonPath) then
+			local items = read_file(itemsJsonPath);
+			local passives = read_file(passivesJsonPath);
+			local result = getBuildXmlByJsons(passives, items)
+			return result
+	end
 end
 
 
+-- test_local_jsons()
 
-
-local passivesJsonPath = arg[1]
-local itemsJsonPath = arg[2]
-
-if file_exists(passivesJsonPath) and file_exists(itemsJsonPath) then
-		local items = read_file(itemsJsonPath);
-		local passives = read_file(passivesJsonPath);
-		loadBuildFromJSON(items, passives)
-		local resultByJson = saveBuildToXml()
-		loadBuildFromXML(resultByJson)
-		local result = saveBuildToXml()
-		print(result)
+local passivesJsonPath = (arg and arg[1]) or nil
+local itemsJsonPath = (arg and arg[2]) or nil
+if passivesJsonPath and itemsJsonPath then
+	print(getBuildXmlByFiles(passivesJsonPath, itemsJsonPath))
 end
+
+
+function toListMode()
+	mainObject.main:SetMode("List")
+	runCallback("OnFrame")
+end
+
 
 -- Probably optional
-runCallback("OnExit")
+-- runCallback("OnExit")
